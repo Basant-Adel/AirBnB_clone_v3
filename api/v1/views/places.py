@@ -7,51 +7,76 @@ from models import storage
 from models.city import City
 from models.place import Place
 
-# Existing code for /cities/<city_id>/places, /places/<place_id>, /places/<place_id>, and /places/<place_id>
 
-@app_views.route('/places_search', methods=['POST'], strict_slashes=False)
-def places_search():
+@app_views.route('/cities/<city_id>/places', methods=['GET'],
+                 strict_slashes=False)
+def get_places_by_city(city_id):
+    """Retrieves the list of all Place objects of a city"""
+    city = storage.get("City", city_id)
+    if not city:
+        abort(404)
+    return jsonify([place.to_dict() for place in city.places])
+
+
+@app_views.route('/places/<place_id>', methods=['GET'], strict_slashes=False)
+def get_place(place_id):
+    """Retrieves a place object by ID"""
+    place = storage.get("Place", place_id)
+    if place is None:
+        abort(404)
+    return jsonify(place.to_dict())
+
+
+@app_views.route('/places/<place_id>', methods=['DELETE'],
+                 strict_slashes=False)
+def delete_place(place_id):
+    """Deletes a Place object by ID"""
+    place = storage.get("Place", place_id)
+    if place is None:
+        abort(404)
+    place.delete()
+    storage.save()
+    return make_response(jsonify({}), 200)
+
+
+@app_views.route('/cities/<city_id>/places', methods=['POST'],
+                 strict_slashes=False)
+def create_place(city_id):
+    """Creates a Place object"""
+    city = storage.get("City", city_id)
+    if not city:
+        abort(404)
     data = request.get_json()
+    if not data:
+        abort(400, 'Not a JSON')
+    if 'user_id' not in data:
+        abort(400, 'Missing user_id')
+    user = storage.get("User", data["user_id"])
+    if not user:
+        abort(404)
+    if 'name' not in data:
+        abort(400, 'Missing name')
+    place = Place(**data)
+    setattr(place, 'city_id', city_id)
+    storage.new(place)
+    storage.save()
+    return make_response(jsonify(place.to_dict()), 201)
 
-    if data is None:
+
+@app_views.route('/places/<place_id>', methods=['PUT'],
+                 strict_slashes=False)
+def update_place(place_id):
+    """Updates a Place object by ID"""
+    place = storage.get("Place", place_id)
+    if place is None:
+        abort(404)
+    data = request.get_json()
+    if not data:
         abort(400, 'Not a JSON')
 
-    states = data.get('states', [])
-    cities = data.get('cities', [])
-    amenities = data.get('amenities', [])
-
-    places = storage.all("Place").values()
-
-    if not states and not cities and not amenities:
-        return jsonify([place.to_dict() for place in places])
-
-    search_results = set()
-
-    if states:
-        for state_id in states:
-            state = storage.get("State", state_id)
-            if state:
-                for city in state.cities:
-                    search_results.update(city.places)
-
-    if cities:
-        for city_id in cities:
-            city = storage.get("City", city_id)
-            if city:
-                search_results.update(city.places)
-
-    if amenities:
-        amenities_set = set()
-        for amenity_id in amenities:
-            amenity = storage.get("Amenity", amenity_id)
-            if amenity:
-                amenities_set.add(amenity)
-
-        for place in search_results.copy():
-            if not amenities_set.issubset(place.amenities):
-                search_results.remove(place)
-
-    return jsonify([place.to_dict() for place in search_results])
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port="5000")
+    # Update the State object's attributes based on the JSON data
+    for key, value in data.items():
+        if key not in ['id', 'user_id', 'city_id', 'created_at', 'updated_at']:
+            setattr(place, key, value)
+    storage.save()
+    return make_response(jsonify(place.to_dict()), 200)
