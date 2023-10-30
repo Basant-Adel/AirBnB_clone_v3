@@ -6,6 +6,9 @@ from os import getenv
 import sqlalchemy
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, Table
 from sqlalchemy.orm import relationship
+from api.v1.views import app_views
+from models import storage
+from flask import Flask, jsonify, abort, make_response, request
 
 if models.storage_t == 'db':
     place_amenity = Table('place_amenity', Base.metadata,
@@ -76,3 +79,38 @@ class Place(BaseModel, Base):
                 if amenity.place_id == self.id:
                     amenity_list.append(amenity)
             return amenity_list
+
+
+@app_views.route('/places_search', methods=['POST'], strict_slashes=False)
+def places_search():
+    """Retrieves all Place objects depending on the JSON in the body of the request"""
+    data = request.get_json()
+
+    if not data:
+        return make_response(jsonify({'error': 'Not a JSON'}), 400)
+
+    states = data.get('states', [])
+    cities = data.get('cities', [])
+    amenities = data.get('amenities', [])
+
+    places = []
+    if not states and not cities and not amenities:
+        places = storage.all('Place').values()
+    else:
+        if states:
+            for state_id in states:
+                state = storage.get('State', state_id)
+                if state:
+                    for city in state.cities:
+                        cities.append(city.id)
+
+        for city_id in cities:
+            city = storage.get('City', city_id)
+            if city:
+                places += city.places
+
+    if amenities:
+        amenities_set = set(amenities)
+        places = [place for place in places if amenities_set.issubset(set([amenity.id for amenity in place.amenities]))]
+
+    return jsonify([place.to_dict() for place in places])
